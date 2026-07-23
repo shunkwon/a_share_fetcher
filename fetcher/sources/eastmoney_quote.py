@@ -8,7 +8,7 @@ Per-stock API: push2.eastmoney.com/api/qt/stock/get
 from ..client import FetcherClient
 
 
-QUOTE_URL = "https://push2.eastmoney.com/api/qt/stock/get"
+QUOTE_URL = "https://push2delay.eastmoney.com/api/qt/stock/get"
 
 
 def _secid(code: str) -> str:

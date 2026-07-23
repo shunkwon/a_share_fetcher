@@ -4,7 +4,10 @@ import sqlite3
 import os
 from datetime import datetime, timezone
 
-DB_PATH = os.path.expanduser("~/projects/a_share_fetcher/data.db")
+DB_PATH = os.environ.get(
+    "A_SHARE_DB_PATH",
+    os.path.expanduser("~/projects/a_share_fetcher/data.db"),
+)
 
 
 def get_db() -> sqlite3.Connection:

@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""Daily PB refresher: fetch fresh PB for all stocks, update ROE/PB in data.json.
+"""Daily PB refresher: fetch PB for all stocks via batch API, update ROE/PB in data.json.
 
-Reads existing data.json (with cached financials), fetches PB from eastmoney,
+Uses the push2 clist batch API (100 stocks/page) instead of per-stock API,
+so it completes in ~30 seconds instead of ~15 minutes.
+
+Reads existing data.json (with cached financials), fetches fresh PB from eastmoney,
 recalculates ROE/PB = ROE / PB, writes updated data.json and data.js.
-
-Fast (~15 min for 5000 stocks) — no financial data re-fetch needed.
 """
 import asyncio
 import json
@@ -14,9 +15,54 @@ import time
 
 sys.path.insert(0, os.path.dirname(__file__))
 
-from fetcher.rate_limiter import RateLimiter
 from fetcher.client import FetcherClient
-from fetcher.sources.eastmoney_quote import fetch_one as fetch_pb_one
+
+
+async def fetch_all_pb_batch(codes: set[str]) -> dict[str, float | None]:
+    """Fetch PB for all codes using the batch clist API (fast, ~100 per page)."""
+    client = FetcherClient()
+    results: dict[str, float | None] = {}
+    page = 1
+    seen = 0
+
+    while True:
+        params = {
+            "fid": "f3", "po": "1", "pz": "100",
+            "pn": str(page), "np": "1", "fltt": "2", "invt": "2",
+            "fs": "m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23",
+            "fields": "f12,f23",
+        }
+        resp = await client.get_json(
+            "https://push2delay.eastmoney.com/api/qt/clist/get", params
+        )
+        if not resp:
+            break
+
+        data = resp.get("data")
+        if not data:
+            break
+
+        diffs = data.get("diff") or []
+        for item in diffs:
+            code = item.get("f12", "")
+            if code not in codes:
+                continue
+            raw = item.get("f23")
+            if raw is not None and raw != "-" and raw != "":
+                results[code] = float(raw)
+            else:
+                results[code] = None
+
+        seen += len(diffs)
+        total = data.get("total", 0)
+        print(f"  page {page}: {len(diffs)} items, {seen}/{total} total", flush=True)
+        if len(diffs) == 0 or seen >= total:
+            break
+        page += 1
+        await asyncio.sleep(0.3)
+
+    await client.close()
+    return results
 
 
 async def refresh_pb(input_json: str, output_json: str, output_js: str):
@@ -26,44 +72,16 @@ async def refresh_pb(input_json: str, output_json: str, output_js: str):
         stocks = json.load(f)
     print(f"  {len(stocks)} stocks loaded")
 
-    # Fetch PB for all stocks
-    limiter = RateLimiter(rpm=360, burst=20)
-    client = FetcherClient(limiter=limiter)
-    sem = asyncio.Semaphore(30)
-
-    pb_map: dict[str, float | None] = {}
-    done = 0
-    total = len(stocks)
-    errors = 0
-    lock = asyncio.Lock()
+    # Collect all codes we need PB for
+    codes = {s["c"] for s in stocks}
+    print(f"Fetching PB for {len(codes)} stocks via batch API...")
     t0 = time.monotonic()
 
-    async def fetch_one(code: str):
-        nonlocal done, errors
-        async with sem:
-            try:
-                quote = await fetch_pb_one(client, code)
-                async with lock:
-                    pb_map[code] = quote.get("pb") if quote else None
-                    done += 1
-                    if done % 500 == 0:
-                        elapsed = time.monotonic() - t0
-                        rate = done / elapsed * 60
-                        eta = (total - done) / rate * 60 if rate > 0 else 0
-                        print(f"  [{done}/{total}] PB quotes, {rate:.0f}/min, ETA {eta:.0f}s")
-            except Exception:
-                async with lock:
-                    errors += 1
-                    done += 1
-
-    print(f"Fetching PB for {total} stocks...")
-    codes = [s["c"] for s in stocks]
-    await asyncio.gather(*[fetch_one(c) for c in codes])
-    await client.close()
+    pb_map = await fetch_all_pb_batch(codes)
 
     valid = sum(1 for v in pb_map.values() if v is not None and v > 0)
     elapsed = time.monotonic() - t0
-    print(f"  Done in {elapsed:.0f}s: {valid}/{total} valid PB ({errors} errors)")
+    print(f"  Done in {elapsed:.0f}s: {valid}/{len(codes)} valid PB")
 
     # Update ROE/PB for each stock
     updated = 0
@@ -94,6 +112,7 @@ async def refresh_pb(input_json: str, output_json: str, output_js: str):
 
     # Write output
     out = json.dumps(stocks, ensure_ascii=False, indent=2)
+    os.makedirs(os.path.dirname(os.path.abspath(output_json)) or ".", exist_ok=True)
     with open(output_json, "w") as f:
         f.write(out)
     with open(output_js, "w") as f:
@@ -106,7 +125,7 @@ async def refresh_pb(input_json: str, output_json: str, output_js: str):
 def main():
     script_dir = os.path.dirname(os.path.abspath(__file__))
     # Default: update the dashboard's data files in-place
-    dashboard_dir = os.path.join(os.path.dirname(script_dir), "financial_dashboard")
+    dashboard_dir = os.path.join(script_dir, "dashboard")
     input_json = os.path.join(dashboard_dir, "data.json")
     output_json = os.path.join(dashboard_dir, "data.json")
     output_js = os.path.join(dashboard_dir, "data.js")

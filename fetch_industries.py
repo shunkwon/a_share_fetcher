@@ -26,7 +26,7 @@ async def fetch_all_industries():
             "fields": "f12,f14,f100",
         }
         resp = await client.get_json(
-            "https://push2.eastmoney.com/api/qt/clist/get", params
+            "https://push2delay.eastmoney.com/api/qt/clist/get", params
         )
         if not resp:
             break
@@ -49,6 +49,7 @@ async def fetch_all_industries():
         if len(diffs) == 0 or seen >= total:
             break
         page += 1
+        await asyncio.sleep(0.3)
 
     await client.close()
 

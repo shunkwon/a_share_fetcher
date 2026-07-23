@@ -1,0 +1,564 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>A股基本面仪表板</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: 'Heiti SC', 'PingFang SC', 'Hiragino Sans GB', sans-serif;
+  background: #f8f8f8;
+  color: #222;
+  padding: 16px;
+  font-size: 12px;
+}
+h1 { font-size: 1.1rem; font-weight: 600; margin-bottom: 8px; color: #333; }
+
+/* --- toolbar --- */
+.toolbar {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  padding: 6px 10px; margin-bottom: 8px;
+  background: #fff; border: 1px solid #d4d4d4; border-radius: 4px;
+}
+.toolbar input[type=text] {
+  width: 160px; padding: 4px 8px;
+  border: 1px solid #c0c0c0; border-radius: 3px;
+  font-size: 12px; outline: none; font-family: inherit;
+}
+.toolbar input[type=text]:focus { border-color: #5da07a; box-shadow: 0 0 0 2px #d4e8db; }
+
+.filter-group {
+  display: flex; align-items: center; gap: 2px;
+  font-size: 11px; color: #555;
+}
+.filter-group label {
+  cursor: pointer; user-select: none; white-space: nowrap;
+  padding: 2px 6px; border-radius: 3px;
+  transition: background 0.15s;
+}
+.filter-group label:hover { background: #f0f4f0; }
+.filter-group label.active { background: #e0efe4; color: #2d6e3c; font-weight: 600; }
+.filter-group input[type=checkbox] { margin-right: 3px; vertical-align: -1px; }
+
+.toolbar .sep { width: 1px; height: 18px; background: #d4d4d4; }
+
+.toolbar select {
+  padding: 2px 6px; border: 1px solid #c0c0c0; border-radius: 3px;
+  font-size: 11px; font-family: inherit; background: #fff; cursor: pointer;
+  max-width: 140px;
+}
+.toolbar select:focus { border-color: #5da07a; outline: none; }
+
+.table-wrap { overflow-x: auto; border: 1px solid #c6c6c6; background: #fff; padding-bottom: 14px; }
+.table-inner { display: inline-block; min-width: 100%; padding-right: 80vw; }
+table { border-collapse: collapse; width: max-content; }
+th, td {
+  padding: 3px 7px; white-space: nowrap; text-align: right;
+  border: 1px solid #d4d4d4;
+}
+/* --- header rows: two-tone --- */
+thead th {
+  background: #e8e8e8;
+  font-weight: 600; font-size: 11.5px; color: #333;
+}
+thead th.group-label {
+  color: #fff; text-align: center; font-size: 13px;
+}
+.gl-roe  { background: #4a7ab5; }
+.gl-debt { background: #b85a5a; }
+.gl-fcf  { background: #2f7a8e; }
+.gl-roepb{ background: #7354a8; }
+.gl-payout{background: #bf7528; }
+.gl-gross{ background: #4d6e87; }
+/* year sub-headers: lighter tint matching group */
+.gy-roe  { background: #dce6f2; }
+.gy-debt { background: #f2dada; }
+.gy-fcf  { background: #cfe5ec; }
+.gy-roepb{ background: #e5ddf0; }
+.gy-payout{background: #f2e0c8; }
+.gy-gross{ background: #d8e2eb; }
+/* sorted column highlight */
+thead th.sortable.sorted { background: #daf0df; color: #2d6e3c; }
+/* --- body --- */
+td {
+  font-size: 12px; font-family: 'Heiti SC', 'PingFang SC', sans-serif;
+  font-variant-numeric: tabular-nums;
+}
+/* banded rows */
+tbody tr:nth-child(even) td { background: #e8f5e9; }
+tbody tr:nth-child(odd)  td { background: #fff; }
+/* hover */
+tbody tr:hover td { background: #e4eff8; }
+
+/* sticky columns — match banded row bg */
+td.code, td.name, th.code, th.name {
+  text-align: left; position: sticky; z-index: 3;
+}
+td.name, th.name { left: 84px; }
+td.code, th.code { left: 0; width: 56px; min-width: 56px; }
+th.code, th.name { background: #6b7d8f; color: #fff; }
+/* sticky body cells: need to mirror banded bg */
+tbody tr:nth-child(even) td.code,
+tbody tr:nth-child(even) td.name { background: #e8f5e9; }
+tbody tr:nth-child(odd) td.code,
+tbody tr:nth-child(odd) td.name { background: #fff; }
+tbody tr:hover td.code,
+tbody tr:hover td.name { background: #e4eff8; }
+
+.col-divider { border-right: 2px solid #bbb; }
+
+/* star / favorite */
+td.star, th.star {
+  text-align: center; cursor: pointer; user-select: none;
+  width: 28px; min-width: 28px; padding: 3px 4px;
+  position: sticky; left: 56px; z-index: 3;
+}
+td.star { font-size: 14px; }
+th.star { background: #6b7d8f; color: #fff; font-size: 12px; }
+
+/* sticky star cell: mirror banded bg */
+tbody tr:nth-child(even) td.star { background: #e8f5e9; }
+tbody tr:nth-child(odd)  td.star { background: #fff; }
+tbody tr:hover td.star { background: #e4eff8; }
+
+.toolbar .fav-btn, .toolbar .xls-btn {
+  padding: 2px 8px; border: 1px solid #c0c0c0; border-radius: 3px;
+  font-size: 11px; cursor: pointer; background: #fff; font-family: inherit;
+  white-space: nowrap;
+}
+.toolbar .fav-btn.active { background: #fff3cd; border-color: #e0b800; color: #8a6d14; }
+.toolbar .xls-btn:hover { background: #e0efe4; }
+
+.spacer { width: 7.5px; min-width: 7.5px; padding: 0 !important; border: none !important; background: transparent !important; }
+.sortable { cursor: pointer; user-select: none; }
+.sortable:hover { background: #d0d0d0; }
+.sortable .arrow { font-size: 10px; margin-left: 2px; color: #888; }
+.sortable.sorted .arrow { color: #3d8b50; }
+.empty { color: #bbb; font-style: italic; }
+
+</style>
+</head>
+<body>
+<h1>A股基本面仪表板</h1>
+
+<div class="toolbar">
+  <input type="text" id="search" placeholder="搜索代码或简称...">
+
+  <span class="sep"></span>
+
+  <div class="filter-group">
+    <label id="lbl-roe" class="active">
+      <input type="checkbox" id="roe13filter" checked>ROE&gt;13%
+    </label>
+    <label id="lbl-fcf">
+      <input type="checkbox" id="fcf0filter" checked>FCF&gt;0
+    </label>
+    <label id="lbl-debt">
+      <input type="checkbox" id="debt45filter" checked>负债&lt;45%
+    </label>
+    <label id="lbl-roepb">
+      <input type="checkbox" id="roepb4filter" checked>ROE/PB&gt;4%
+    </label>
+    <label id="lbl-gross">
+      <input type="checkbox" id="gross20filter" checked>毛利率&gt;20%
+    </label>
+  </div>
+
+  <span class="sep"></span>
+
+  <select id="colSelect" title="切换收藏夹"></select>
+  <button class="fav-btn" id="myBtn" title="只看当前收藏夹的企业">☆ 筛选</button>
+  <button class="fav-btn" id="addColBtn" title="新建自定义分类">+ 分组</button>
+
+  <span class="sep"></span>
+
+  <button class="xls-btn" id="xlsBtn" title="导出当前视图为 CSV">⬇ 导出</button>
+  <span id="capWarn" style="font-size:11px;color:#c44;margin-left:4px;display:none;"></span>
+</div>
+<div class="table-wrap"><div class="table-inner">
+<table id="tb">
+<thead></thead>
+<tbody></tbody>
+</table>
+</div></div>
+
+<script src="data.js"></script>
+<script>
+const METRICS = [
+  { key:'roe',    label:'ROE (%)',    yrs:[2022,2023,2024,2025] },
+  { key:'debt',   label:'资产负债率 (%)', yrs:[2022,2023,2024,2025] },
+  { key:'fcf',    label:'FCF (亿)',   yrs:[2022,2023,2024,2025] },
+  { key:'roepb',  label:'ROE/PB (%)', yrs:[2022,2023,2024,2025] },
+  { key:'payout', label:'分红比率 (%)', yrs:[2022,2023,2024,2025] },
+  { key:'gross',  label:'毛利率 (%)', yrs:[2022,2023,2024,2025] },
+];
+// Live data loaded from data.json (generated by a_share_fetcher)
+let DATA = [];
+let DATA_LOADED = false;
+
+function loadData() {
+  if (typeof STOCK_DATA !== 'undefined' && STOCK_DATA.length) {
+    DATA = STOCK_DATA;
+    DATA_LOADED = true;
+  } else {
+    console.warn('STOCK_DATA not found - run python cli.py export first');
+  }
+  render();
+}
+
+
+// --- Named Collections (Local API with LocalStorage Fallback) ---
+const DEFAULT_COLLECTIONS = { '我的': [], 'AI 硬件产业链': ['000021', '000032', '000034', '000063', '000066', '000070', '000519', '000534', '000636', '000657', '000725', '000733', '000811', '000823', '000938', '000962', '000969', '000970', '000977', '000988', '001267', '001309', '001339', '001359', '001389', '002008', '002023', '002046', '002056', '002068', '002080', '002126', '002129', '002138', '002141', '002156', '002158', '002167', '002185', '002203', '002230', '002254', '002281', '002335', '002353', '002364', '002371', '002378', '002384', '002407', '002409', '002428', '002430', '002436', '002463', '002475', '002484', '002491', '002536', '002549', '002552', '002579', '002584', '002585', '002600', '002617', '002636', '002674', '002735', '002741', '002745', '002837', '002842', '002851', '002859', '002885', '002916', '002922', '002938', '002965', '002971', '002975', '003018', '003031', '003036', '003816', '300037', '300054', '300088', '300166', '300179', '300209', '300223', '300224', '300243', '300260', '300285', '300308', '300319', '300346', '300373', '300383', '300394', '300395', '300398', '300408', '300418', '300429', '300433', '300442', '300474', '300475', '300476', '300489', '300499', '300502', '300522', '300540', '300548', '300567', '300570', '300576', '300604', '300620', '300623', '300624', '300655', '300666', '300693', '300748', '300757', '300776', '300806', '300811', '300819', '300835', '300857', '300870', '300943', '301018', '301021', '301071', '301086', '301123', '301165', '301176', '301188', '301191', '301200', '301205', '301217', '301308', '301373', '301377', '301392', '301396', '301486', '301489', '301511', '301526', '301580', '600100', '600105', '600110', '600111', '600141', '600160', '600172', '600176', '600183', '600184', '600186', '600206', '600207', '600226', '600330', '600353', '600366', '600378', '600392', '600397', '600458', '600460', '600487', '600497', '600498', '600500', '600522', '600545', '600549', '600552', '600563', '600584', '600596', '600667', '600673', '600703', '600707', '600845', '600875', '600888', '601133', '601138', '601208', '601360', '601636', '601678', '601869', '601985', '603002', '603011', '603019', '603065', '603067', '603078', '603083', '603115', '603124', '603155', '603163', '603186', '603228', '603256', '603267', '603290', '603308', '603324', '603386', '603407', '603496', '603618', '603650', '603661', '603663', '603678', '603688', '603690', '603733', '603757', '603773', '603800', '603881', '603929', '603938', '603986', '603989', '605006', '605111', '605354', '605358', '605366', '605376', '605580', '605589', '688008', '688012', '688019', '688020', '688028', '688037', '688041', '688047', '688048', '688072', '688082', '688106', '688110', '688111', '688120', '688123', '688126', '688141', '688143', '688146', '688147', '688190', '688200', '688233', '688234', '688249', '688256', '688257', '688260', '688268', '688300', '688313', '688347', '688359', '688361', '688362', '688388', '688396', '688409', '688432', '688478', '688498', '688519', '688521', '688525', '688535', '688545', '688548', '688559', '688584', '688598', '688603', '688625', '688627', '688630', '688662', '688668', '688700', '688702', '688711', '688720', '688766', '688795', '688802', '688808', '688809', '688813', '688981', '920438', '920725', '920808'] };
+
+async function fetchRemoteCollections() {
+  try {
+    const res = await fetch('/api/collections');
+    if (res.ok) {
+      const data = await res.json();
+      return data;
+    }
+  } catch(e) {}
+  return null;
+}
+
+async function saveRemoteCollections(cols) {
+  try {
+    await fetch('/api/collections', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(cols)
+    });
+  } catch(e) {}
+}
+
+function getCollections() {
+  try {
+    let cols = JSON.parse(localStorage.getItem('stockCollections')||'{}');
+    for (const [k,v] of Object.entries(DEFAULT_COLLECTIONS)) {
+      if (!(k in cols)) cols[k] = v;
+    }
+    return cols;
+  } catch(e) { return { ...DEFAULT_COLLECTIONS }; }
+}
+
+function saveCollections(cols) {
+  localStorage.setItem('stockCollections', JSON.stringify(cols));
+  saveRemoteCollections(cols);
+}
+
+function getActiveCollection() {
+  try { return localStorage.getItem('activeCollection') || '我的'; }
+  catch(e) { return '我的'; }
+}
+
+function setActiveCollection(name) {
+  localStorage.setItem('activeCollection', name);
+}
+
+let collections = getCollections();
+let activeCol = getActiveCollection();
+let favorites = new Set(collections[activeCol] || []);
+
+// Sync with backend collections.json asynchronously on startup
+(async function initSync() {
+  const remoteCols = await fetchRemoteCollections();
+  if (remoteCols && Object.keys(remoteCols).length > 0) {
+    collections = { ...DEFAULT_COLLECTIONS, ...remoteCols };
+  } else {
+    // If backend is empty, write current collections to backend
+    saveRemoteCollections(collections);
+  }
+  if (!collections[activeCol]) activeCol = '我的';
+  favorites = new Set(collections[activeCol] || []);
+  saveCollections(collections);
+  render();
+  populateColSelect();
+})();
+
+// Persist defaults on first load so localStorage is always in sync
+if (!localStorage.getItem('stockCollections')) {
+  saveCollections(collections);
+}
+
+let sortKey = null, sortYr = null, sortAsc = false;
+
+function fmt(m, v) {
+  if (v == null) return '<span class="empty">—</span>';
+  return m.key === 'fcf' ? v.toFixed(1) : v.toFixed(1) + '%';
+}
+
+function render() {
+  const q = document.getElementById('search').value.trim().toLowerCase();
+  let rows = DATA.filter(r => r.c.includes(q) || r.n.toLowerCase().includes(q));
+
+  // My stocks only
+  if (myOnly) {
+    rows = rows.filter(r => favorites.has(r.c));
+  }
+
+  // ROE > 13% filter: Require at least 1 valid year and all valid years > 13%
+  if (document.getElementById('roe13filter').checked) {
+    rows = rows.filter(r => {
+      const valid = r.roe.filter(v => v != null);
+      return valid.length > 0 && valid.every(v => v > 13.0);
+    });
+  }
+
+  // FCF > 0 filter: Require at least 1 valid year and all valid years > 0
+  if (document.getElementById('fcf0filter').checked) {
+    rows = rows.filter(r => {
+      const valid = r.fcf.filter(v => v != null);
+      return valid.length > 0 && valid.every(v => v > 0);
+    });
+  }
+
+  // Debt < 45% filter: Require at least 1 valid year and all valid years < 45%
+  if (document.getElementById('debt45filter').checked) {
+    rows = rows.filter(r => {
+      const valid = r.debt.filter(v => v != null);
+      return valid.length > 0 && valid.every(v => v < 45.0);
+    });
+  }
+
+  // ROE/PB > 4% filter: Require at least 1 valid year and all valid years > 4%
+  if (document.getElementById('roepb4filter').checked) {
+    rows = rows.filter(r => {
+      const valid = r.roepb.filter(v => v != null);
+      return valid.length > 0 && valid.every(v => v > 4.0);
+    });
+  }
+
+  // Gross margin > 20% filter: Require at least 1 valid year and all valid years > 20%
+  if (document.getElementById('gross20filter').checked) {
+    rows = rows.filter(r => {
+      const valid = r.gross.filter(v => v != null);
+      return valid.length > 0 && valid.every(v => v > 20.0);
+    });
+  }
+
+  // Cap display to prevent DOM overload
+  const MAX_ROWS = 500;
+  const total = rows.length;
+  if (total > MAX_ROWS) rows = rows.slice(0, MAX_ROWS);
+  const capWarn = document.getElementById('capWarn');
+  if (total > MAX_ROWS) {
+    capWarn.textContent = `（仅显示前${MAX_ROWS}只，共${total}只。请勾选筛选条件或搜索缩小范围）`;
+    capWarn.style.display = '';
+  } else {
+    capWarn.style.display = 'none';
+  }
+
+  if (sortKey) {
+    const yi = sortYr != null ? sortYr : (METRICS.find(m=>m.key===sortKey).yrs.length - 1);
+    rows = [...rows].sort((a,b) => {
+      const va = a[sortKey][yi], vb = b[sortKey][yi];
+      if (va == null && vb == null) return 0;
+      if (va == null) return 1;
+      if (vb == null) return -1;
+      return sortAsc ? va - vb : vb - va;
+    });
+  }
+
+  // Row 1: group labels (rowspan=2 for code/name)
+  let th = '<tr><th class="code" rowspan="2">代码</th><th class="star" rowspan="2">☆</th><th class="name" rowspan="2">简称</th>';
+  METRICS.forEach((m, mi) => {
+    const div = mi < METRICS.length - 1 ? ' col-divider' : '';
+    th += `<th class="group-label gl-${m.key}${div}" colspan="${m.yrs.length}">${m.label}</th>`;
+    if (mi < METRICS.length - 1) th += '<th class="spacer" rowspan="2"></th>';
+  });
+  th += '</tr>';
+  // Row 2: year sub-columns
+  th += '<tr>';
+  METRICS.forEach((m, mi) => {
+    const div = mi < METRICS.length - 1 ? ' col-divider' : '';
+    m.yrs.forEach((yr, yi) => {
+      const sc = (sortKey === m.key && (sortYr != null ? sortYr === yi : yi === m.yrs.length - 1)) ? ' sorted' : '';
+      th += `<th class="sortable gy-${m.key}${sc}${div}" data-m="${m.key}" data-y="${yi}">${yr}<span class="arrow">${sc ? (sortAsc ? '↑' : '↓') : ''}</span></th>`;
+    });
+  });
+  th += '</tr>';
+  document.querySelector('thead').innerHTML = th;
+
+  let tb = '';
+  rows.forEach(r => {
+    const isFav = favorites.has(r.c);
+    tb += `<tr><td class="code">${r.c}</td><td class="star" data-code="${r.c}">${isFav?'★':'☆'}</td><td class="name">${r.n}</td>`;
+    METRICS.forEach((m, mi) => {
+      const div = mi < METRICS.length - 1 ? ' col-divider' : '';
+      m.yrs.forEach((yr, yi) => {
+        tb += `<td class="${div}">${fmt(m, r[m.key][yi])}</td>`;
+      });
+      if (mi < METRICS.length - 1) tb += '<td class="spacer"></td>';
+    });
+    tb += '</tr>';
+  });
+  document.querySelector('tbody').innerHTML = tb;
+  populateColSelect();
+}
+
+document.querySelector('thead').addEventListener('click', e => {
+  const th = e.target.closest('.sortable');
+  if (!th) return;
+  const mk = th.dataset.m, yr = parseInt(th.dataset.y, 10);
+  if (sortKey === mk && (sortYr != null ? sortYr : METRICS.find(m=>m.key===mk).yrs.length-1) === yr) {
+    sortAsc = !sortAsc;
+  } else {
+    sortKey = mk; sortYr = yr; sortAsc = false;
+  }
+  render();
+});
+
+function updateFilterLabels() {
+  const map = {roe13filter:'lbl-roe', fcf0filter:'lbl-fcf', debt45filter:'lbl-debt', roepb4filter:'lbl-roepb', gross20filter:'lbl-gross'};
+  Object.entries(map).forEach(([cbId, lblId]) => {
+    const cb = document.getElementById(cbId);
+    const lbl = document.getElementById(lblId);
+    if (!cb || !lbl) return;
+    if (cb.checked) lbl.classList.add('active');
+    else lbl.classList.remove('active');
+  });
+}
+
+// Star click handler (event delegation on tbody)
+document.querySelector('tbody').addEventListener('click', e => {
+  const td = e.target.closest('.star');
+  if (!td) return;
+  const code = td.dataset.code;
+  if (favorites.has(code)) {
+    favorites.delete(code);
+  } else {
+    favorites.add(code);
+  }
+  collections[activeCol] = [...favorites];
+  saveCollections(collections);
+  render();
+});
+
+// Collection filter toggle
+let myOnly = false;
+document.getElementById('myBtn').addEventListener('click', () => {
+  myOnly = !myOnly;
+  const btn = document.getElementById('myBtn');
+  btn.classList.toggle('active', myOnly);
+  btn.textContent = myOnly ? '★ 筛选' : '☆ 筛选';
+  render();
+});
+
+// Collection selector dropdown
+function populateColSelect() {
+  const sel = document.getElementById('colSelect');
+  if (!sel) return;
+  const currentVal = sel.value || activeCol;
+  sel.innerHTML = '';
+  Object.keys(collections).sort().forEach(name => {
+    const opt = document.createElement('option');
+    opt.value = name;
+    opt.textContent = '📁 ' + name + ' (' + (collections[name]||[]).length + ')';
+    if (name === currentVal) opt.selected = true;
+    sel.appendChild(opt);
+  });
+}
+document.getElementById('colSelect').addEventListener('change', () => {
+  collections[activeCol] = [...favorites];
+  saveCollections(collections);
+  activeCol = document.getElementById('colSelect').value;
+  setActiveCollection(activeCol);
+  favorites = new Set(collections[activeCol] || []);
+  
+  // 切换分组时自动开启“只看当前分组”筛选
+  myOnly = true;
+  const btn = document.getElementById('myBtn');
+  if (btn) { btn.classList.add('active'); btn.textContent = '★ 筛选'; }
+  render();
+});
+
+// New collection handler
+const addBtn = document.getElementById('addColBtn');
+if (addBtn) {
+  addBtn.addEventListener('click', () => {
+    const name = prompt('请输入新分组名称:');
+    if (!name || !name.trim()) return;
+    const cleanName = name.trim();
+    if (collections[cleanName]) {
+      alert('分组已存在！');
+      return;
+    }
+    // 保存当前组的收藏数据
+    collections[activeCol] = [...favorites];
+    // 初始化新组
+    collections[cleanName] = [];
+    activeCol = cleanName;
+    favorites = new Set([]);
+    // 立即持久化到 localStorage
+    saveCollections(collections);
+    setActiveCollection(activeCol);
+    render();
+  });
+}
+
+// Export to CSV
+document.getElementById('xlsBtn').addEventListener('click', () => {
+  const q = document.getElementById('search').value.trim().toLowerCase();
+  let rows = DATA.filter(r => r.c.includes(q) || r.n.toLowerCase().includes(q));
+  if (document.getElementById('roe13filter').checked) {
+    rows = rows.filter(r => {
+      const valid = r.roe.filter(v => v != null);
+      return valid.length > 0 && valid.every(v => v > 13.0);
+    });
+  }
+  if (document.getElementById('fcf0filter').checked) {
+    rows = rows.filter(r => {
+      const valid = r.fcf.filter(v => v != null);
+      return valid.length > 0 && valid.every(v => v > 0);
+    });
+  }
+  if (document.getElementById('debt45filter').checked) {
+    rows = rows.filter(r => {
+      const valid = r.debt.filter(v => v != null);
+      return valid.length > 0 && valid.every(v => v < 45.0);
+    });
+  }
+  if (document.getElementById('roepb4filter').checked) {
+    rows = rows.filter(r => {
+      const valid = r.roepb.filter(v => v != null);
+      return valid.length > 0 && valid.every(v => v > 4.0);
+    });
+  }
+  if (document.getElementById('gross20filter').checked) {
+    rows = rows.filter(r => {
+      const valid = r.gross.filter(v => v != null);
+      return valid.length > 0 && valid.every(v => v > 20.0);
+    });
+  }
+  if (myOnly) rows = rows.filter(r => favorites.has(r.c));
+
+  let csv = '\ufeff代码,简称';
+  METRICS.forEach(m => m.yrs.forEach(yr => csv += ',' + m.label.replace(' (%)','').replace(' (亿)','') + '_' + yr));
+  csv += '\n';
+  rows.forEach(r => {
+    csv += r.c + ',' + r.n;
+    METRICS.forEach(m => m.yrs.forEach((yr, yi) => {
+      const v = r[m.key][yi];
+      csv += ',' + (v != null ? v : '');
+    }));
+    csv += '\n';
+  });
+  const blob = new Blob([csv], {type: 'application/vnd.ms-excel;charset=utf-8'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = 'a_share_screen_' + new Date().toISOString().slice(0,10) + '.csv';
+  a.click();
+  URL.revokeObjectURL(url);
+});
+
+document.getElementById('search').addEventListener('input', render);
+['roe13filter','fcf0filter','debt45filter','roepb4filter','gross20filter'].forEach(id => {
+  document.getElementById(id).addEventListener('change', () => { updateFilterLabels(); render(); });
+});
+updateFilterLabels();
+loadData();
+populateColSelect();
+</script>
+</body>
+</html>

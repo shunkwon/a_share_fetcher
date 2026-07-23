@@ -1,0 +1,41 @@
+name: Daily PB Refresh
+
+on:
+  schedule:
+    # 每天北京时间 16:00 (UTC 08:00) — A股收盘后
+    - cron: "0 8 * * *"
+  workflow_dispatch: {}  # 手动触发
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install httpx aiofiles
+
+      - name: Refresh PB & ROE/PB
+        run: |
+          if [ ! -f dashboard/data.json ]; then
+            echo "data.json not found — run full refresh first"
+            exit 1
+          fi
+          python daily_pb.py dashboard/data.json dashboard/data.json dashboard/data.js
+
+      - name: Commit & push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add dashboard/data.json dashboard/data.js
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "daily: PB refresh $(date +%Y-%m-%d)"
+            git push
+          fi
