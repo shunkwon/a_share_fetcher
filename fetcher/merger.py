@@ -12,7 +12,7 @@ def merge_one(fin_rows: list[dict],
     dividends: {year: {total_dividend, ...}}
 
     Returns list of {code, name, year, roe, debt_ratio, gross_margin,
-                     fcf, payout, pb, roe_pb}
+                     fcf, payout, pb, roe_pb, net_profit}
     """
     pb = quote.get("pb") if quote else None
 
@@ -41,8 +41,6 @@ def merge_one(fin_rows: list[dict],
                 fcf = round(op_cf_ps * shares / 1e8, 2)
 
         # Payout ratio = total_dividend / net_profit * 100
-        # If planned_dps exists (mid-term already paid + final 预案), add it on top
-        # Fallback: dps / eps * 100 (for planned but not yet implemented dividends)
         total_div = div.get("total_dividend")
         dps = div.get("dps")
         planned_dps = div.get("planned_dps")
@@ -64,6 +62,11 @@ def merge_one(fin_rows: list[dict],
         if roe is not None and pb is not None and pb > 0:
             roe_pb = round(roe / pb, 2)
 
+        # 归母净利 in 亿
+        np_yi = None
+        if net_profit is not None:
+            np_yi = round(net_profit / 1e8, 2)
+
         rows.append({
             "code": fin["code"],
             "name": fin.get("name") or (quote.get("name") if quote else ""),
@@ -75,6 +78,7 @@ def merge_one(fin_rows: list[dict],
             "payout": payout,
             "pb": pb,
             "roe_pb": roe_pb,
+            "net_profit": np_yi,
         })
 
     return rows

@@ -33,6 +33,7 @@ def init_db():
             payout REAL,
             pb REAL,
             roe_pb REAL,
+            net_profit REAL,
             fetched_at TEXT NOT NULL,
             PRIMARY KEY (stock_code, year)
         );
@@ -46,6 +47,11 @@ def init_db():
             created_at TEXT NOT NULL DEFAULT (datetime('now'))
         );
     """)
+    # Migrate existing databases (add net_profit column if missing)
+    try:
+        conn.execute("ALTER TABLE financials ADD COLUMN net_profit REAL")
+    except:
+        pass
     conn.commit()
     conn.close()
 
@@ -58,12 +64,13 @@ def upsert_financials(rows: list[dict]):
         conn.execute("""
             INSERT OR REPLACE INTO financials
                 (stock_code, stock_name, year, roe, debt_ratio,
-                 gross_margin, fcf, payout, pb, roe_pb, fetched_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 gross_margin, fcf, payout, pb, roe_pb, net_profit, fetched_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             r["code"], r.get("name", ""), r["year"],
             r.get("roe"), r.get("debt_ratio"), r.get("gross_margin"),
             r.get("fcf"), r.get("payout"), r.get("pb"), r.get("roe_pb"),
+            r.get("net_profit"),
             now,
         ))
     conn.commit()
@@ -74,7 +81,7 @@ def load_financials(years: list[int] | None = None,
                     codes: list[str] | None = None) -> list[dict]:
     """Load cached financial data with column names matching dashboard fields."""
     conn = get_db()
-    query = "SELECT stock_code, stock_name, year, roe, debt_ratio, gross_margin, fcf, payout, pb, roe_pb FROM financials WHERE 1=1"
+    query = "SELECT stock_code, stock_name, year, roe, debt_ratio, gross_margin, fcf, payout, pb, roe_pb, net_profit FROM financials WHERE 1=1"
     params: list = []
     if years:
         placeholders = ",".join("?" * len(years))
@@ -89,7 +96,7 @@ def load_financials(years: list[int] | None = None,
     conn.close()
 
     cols = ["code", "name", "year", "roe", "debt_ratio", "gross_margin",
-            "fcf", "payout", "pb", "roe_pb"]
+            "fcf", "payout", "pb", "roe_pb", "net_profit"]
     return [dict(zip(cols, row)) for row in rows]
 
 

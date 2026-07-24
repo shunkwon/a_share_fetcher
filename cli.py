@@ -134,7 +134,9 @@ def _convert_to_dashboard(rows: list[dict],
      fcf:    [yr1, yr2, ...],
      roepb:  [yr1, yr2, ...],
      payout: [yr1, yr2, ...],
-     gross:  [yr1, yr2, ...]}
+     gross:  [yr1, yr2, ...],
+     np:     [yr1, yr2, ...],    // 归母净利(亿)
+     pe:     [yr1, yr2, ...]}     // PE = PB/(ROE/100)
     """
     # Load industry mapping
     industry_map: dict[str, str] = {}
@@ -160,6 +162,7 @@ def _convert_to_dashboard(rows: list[dict],
             ("roe", "roe"), ("debt", "debt_ratio"),
             ("fcf", "fcf"), ("roepb", "roe_pb"),
             ("payout", "payout"), ("gross", "gross_margin"),
+            ("np", "net_profit"), ("pe", "pe"),
         ]:
             item[metric] = []
             scan_years = list(years)
@@ -167,6 +170,17 @@ def _convert_to_dashboard(rows: list[dict],
                 row = data.get(yr, {})
                 v = row.get(key)
                 item[metric].append(round(v, 1) if v is not None else None)
+        # PE = PB / (ROE/100), same methodology as ROE/PB
+        pb_val = data.get(max(years), {}).get("pb") if years else None
+        item["pe"] = []
+        for yr in years:
+            row = data.get(yr, {})
+            roe_v = row.get("roe")
+            pb_v = row.get("pb")
+            if roe_v is not None and roe_v > 0 and pb_v is not None and pb_v > 0:
+                item["pe"].append(round(pb_v / (roe_v / 100.0), 1))
+            else:
+                item["pe"].append(None)
         out.append(item)
 
     return out
