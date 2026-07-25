@@ -40,21 +40,18 @@ def merge_one(fin_rows: list[dict],
                 shares = net_profit / eps
                 fcf = round(op_cf_ps * shares / 1e8, 2)
 
-        # Payout ratio = total_dividend / net_profit * 100
+        # Payout ratio — prefer dps/eps (per-share, correct for A+H dual-listed)
+        # Fallback: total_dividend / net_profit * 100 (A-share scope, may understate
+        # for companies with large H-share float like CCB, CNOOC, China Mobile)
         total_div = div.get("total_dividend")
         dps = div.get("dps")
-        planned_dps = div.get("planned_dps")
         net_profit = fin.get("net_profit")
         eps = fin.get("eps")
         payout = None
-        if total_div is not None and total_div > 0 and net_profit is not None and net_profit > 0:
-            full_div = total_div
-            if planned_dps is not None and eps is not None and eps > 0:
-                shares = net_profit / eps
-                full_div = full_div + planned_dps * shares
-            payout = round(full_div / net_profit * 100, 2)
-        elif dps is not None and eps is not None and eps > 0:
+        if dps is not None and dps > 0 and eps is not None and eps > 0:
             payout = round(dps / eps * 100, 2)
+        elif total_div is not None and total_div > 0 and net_profit is not None and net_profit > 0:
+            payout = round(total_div / net_profit * 100, 2)
 
         # ROE/PB
         roe = fin.get("roe")

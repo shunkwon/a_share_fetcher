@@ -53,10 +53,13 @@ async def fetch_one(client: FetcherClient, code: str) -> dict[int, dict]:
             "ipo_num": row.get("IPO_NUM"),
         }
 
-    # 2. Planned dividends from fhyx: fill gaps where lnfhrz has 0 or missing
+    # 2. Accumulate DPS from all fhyx events (both implemented and planned)
+    #    Per-share dividend is the same for A and H shares — reliable for payout ratio
+    #    regardless of whether East Money's TOTAL_DIVIDEND covers A-share only or A+H.
     for event in resp.get("fhyx") or []:
-        progress = event.get("ASSIGN_PROGRESS", "")
-        if '股东大会预案' not in str(progress):
+        progress = str(event.get("ASSIGN_PROGRESS", ""))
+        per_share = _parse_plan(event.get("IMPL_PLAN_PROFILE", ""))
+        if per_share is None:
             continue
 
         notice_date = str(event.get("NOTICE_DATE", ""))[:4]
@@ -64,28 +67,31 @@ async def fetch_one(client: FetcherClient, code: str) -> dict[int, dict]:
             continue
         notice_year = int(notice_date)
 
-        # The dividend plan announced in year N+1 belongs to fiscal year N
-        fiscal_year = notice_year - 1
-
-        per_share = _parse_plan(event.get("IMPL_PLAN_PROFILE", ""))
-        if per_share is None:
-            continue
+        # Map notice date to fiscal year:
+        #   Jan-Jul: final dividend of previous FY (N+1 → FY N)
+        #   Aug-Dec: mid-year dividend of current FY (N → FY N)
+        month = int(str(event.get("NOTICE_DATE", ""))[5:7])
+        fiscal_year = notice_year if month >= 8 else notice_year - 1
 
         existing = out.get(fiscal_year, {})
-        existing_div = existing.get("total_dividend")
 
-        if existing_div and existing_div > 0:
-            # Already has implemented dividend (e.g. mid-term);
-            # add planned DPS on top so merger can sum them (mid + final)
-            existing["planned_dps"] = per_share
-            continue
+        # Always accumulate dps (per-share, correct for both A and H shares)
+        existing["dps"] = round((existing.get("dps") or 0) + per_share, 4)
 
-        out[fiscal_year] = {
-            "total_dividend": existing.get("total_dividend"),  # 0 or None
-            "dps": per_share,  # dividend per share from plan
-            "seo_num": existing.get("seo_num"),
-            "allotment_num": existing.get("allotment_num"),
-            "ipo_num": existing.get("ipo_num"),
-        }
+        # Planned (not yet implemented) dividends: fill gaps + mark planned_dps
+        if '股东大会预案' in progress:
+            existing_div = existing.get("total_dividend")
+            if existing_div and existing_div > 0:
+                # Already has implemented dividend (e.g. mid-term);
+                # add planned DPS on top so merger can sum them (mid + final)
+                existing["planned_dps"] = per_share
+                out[fiscal_year] = existing
+                continue
+
+            # No implemented dividend yet for this fiscal year
+            if "total_dividend" not in existing:
+                existing["total_dividend"] = None
+
+        out[fiscal_year] = existing
 
     return out
